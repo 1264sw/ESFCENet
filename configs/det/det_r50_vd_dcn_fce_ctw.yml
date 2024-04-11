@@ -1,0 +1,157 @@
+Global:
+  use_gpu: true
+  epoch_num: 300
+  log_smooth_window: 20
+  print_batch_step: 20
+  save_model_dir: E:/work/PaddleOCR-release-2.7/PaddleOCR-release-2.7/output/det_r50_dcn_fce_ctw/
+  # save_model_dir: ./output/det_r50_dcn_fce_ctw/
+  save_epoch_step: 100
+  # evaluation is run every 835 iterations
+  eval_batch_step: [0, 835]
+  cal_metric_during_train: False
+  pretrained_model: E:/work/PaddleOCR-release-2.7/PaddleOCR-release-2.7/pretrain_models/ResNet50_vd_ssld_pretrained
+  # pretrained_model: ./pretrain_models/ResNet50_vd_ssld_pretrained
+  checkpoints: 
+  save_inference_dir: 
+  use_visualdl: False
+  infer_img: doc/imgs_en/img_10.jpg
+  save_res_path: E:/work/PaddleOCR-release-2.7/PaddleOCR-release-2.7/output/det_fce/predicts_fce.txt
+  # save_res_path: ./output/det_fce/predicts_fce.txt
+
+
+Architecture:
+  model_type: det
+  algorithm: FCE
+  Transform:
+  Backbone:
+    name: ResNet_vd
+    layers: 50
+    # cardinality: 16
+    # baseWidth: 4
+    dcn_stage: [False, True, True, True]
+    out_indices: [1,2,3]
+  Neck:
+    name: FCEFPN
+    out_channels: 256
+    has_extra_convs: False
+    extra_stage: 0
+  Head:
+    name: FCEHead
+    fourier_degree: 5
+Loss:
+  name: FCELoss
+  fourier_degree: 5
+  num_sample: 50
+  
+Optimizer:
+  name: Adam
+  beta1: 0.9
+  beta2: 0.999
+  lr:
+    learning_rate: 0.0001
+  regularizer:
+    name: 'L2'
+    factor: 0
+
+PostProcess:
+  name: FCEPostProcess
+  scales: [8, 16, 32]
+  alpha: 1.0
+  beta: 1.0
+  fourier_degree: 5
+  box_type: 'poly'
+
+Metric:
+  name: DetFCEMetric
+  main_indicator: hmean
+
+
+
+Train:
+  dataset:
+    name: SimpleDataSet
+    data_dir: E:/work/PaddleOCR-release-2.7/PaddleOCR-release-2.7/train_data/ctw15001/imgs/
+#    data_dir: ./train_data/ctw1500_old/imgs/
+    label_file_list:
+      - E:/work/PaddleOCR-release-2.7/PaddleOCR-release-2.7/train_data/ctw15001/imgs/training.txt
+#      - ./train_data/ctw1500_old/imgs/old_training.txt
+    transforms:
+      - DecodeImage: # load image 加载图片
+          img_mode: BGR
+          channel_first: False      # 如果是 True，那么返回的形状是[channel，time]，如果是 False，则是[time，channel]
+          ignore_orientation: True
+      - DetLabelEncode: # Class handling label 类处理标签
+      - ColorJitter:      # 改变图像属性
+          brightness: 0.142     # 亮度：亮度抖动的程度。 从[max(0,1 -亮度)，1 +亮度]中均匀选择。应该是非负数。默认值:0。
+          saturation: 0.5       # 饱和度：对比度抖动的程度。 从[max(0,1 -对比度)，1 +对比度]中均匀选择。应该是非负数。默认值:0。
+          contrast: 0.5         # 对比度：饱和度抖动的程度。 从[max(0,1 -饱和度)，1 +饱和度]中均匀选择。应该是非负数。默认值:0。
+   #   - MakeShrinkMap:
+   #       shrink_ratio: 0.4
+   #       min_text_size: 8
+   #   - MakeBorderMap:
+   #       shrink_ratio: 0.4
+   #       thresh_min: 0.3
+   #       thresh_max: 0.7
+      - RandomScaling: 
+      - RandomCropFlip:                # 随机裁剪和翻转图像的一个补丁
+          crop_ratio: 0.5              # 裁剪的比例
+      - RandomCropPolyInstances:       # 随机裁剪图像，并确保包含至少一个完整的实例
+          crop_ratio: 0.8              # 裁剪的比例
+          min_side_ratio: 0.3          # 裁剪后的补丁和原始图像之间的最小面积比率  （no）
+      - RandomRotatePolyInstances:    # 随机旋转图像和多边形掩码
+          rotate_ratio: 0.5           # 操作旋转样本比例
+          max_angle: 30               # 最大旋转角度
+          pad_with_fixed_color: False   # 是否用固定值填充旋转图像的标志。如果设置为False，旋转后的图像将被填充到裁剪后的图像上。
+      - SquareResizePad:              # 将图像调整大小或填充成正方形。
+          target_size: 800            # 正方形图像的目标尺寸
+          pad_ratio: 0.6              # 填充的比例
+      - IaaAugment:
+          augmenter_args:     # 水平翻转、仿射变换和尺寸调整
+            - { 'type': Fliplr, 'args': { 'p': 0.5 }}
+      - FCENetTargets:          # 生成FCENet的地面真实目标:用于任意形状文本检测的傅立叶轮廓嵌入
+          fourier_degree: 5     # 最大傅里叶变换度
+      - NormalizeImage:        # 归一化图像
+          scale: 1./255.
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]
+          order: 'hwc'
+      - ToCHWImage:           # 将HWC图像转换为CHW图像
+      - KeepKeys:
+          keep_keys: ['image', 'p3_maps', 'p4_maps', 'p5_maps'] # dataloader will return list in this order 数据加载程序将按此顺序返回列表
+  loader:
+    shuffle: True             # 每个epoch是否将数据集顺序打乱
+    drop_last: False          # 是否丢弃因数据集样本数不能被 batch_size 整除而产生的最后一个不完整的mini-batch
+    batch_size_per_card: 1       # 训练时单卡batch size
+    num_workers: 8            # 用于加载数据的子进程个数，若为0即为不开启子进程，在主进程中进行数据加载
+
+Eval:
+  dataset:
+    name: SimpleDataSet
+    data_dir: E:/work/PaddleOCR-release-2.7/PaddleOCR-release-2.7/train_data/ctw15001/imgs/
+#    data_dir: ./train_data/ctw1500_old/imgs/
+    label_file_list:
+      - E:/work/PaddleOCR-release-2.7/PaddleOCR-release-2.7/train_data/ctw15001/imgs/test.txt
+#      - ./train_data/ctw1500_old/imgs/old_test.txt
+    transforms:
+      - DecodeImage: # load image
+          img_mode: BGR
+          channel_first: False
+          ignore_orientation: True
+      - DetLabelEncode: # Class handling label
+      - DetResizeForTest:
+          limit_type: 'min'
+          limit_side_len: 736
+      - NormalizeImage:
+          scale: 1./255.
+          mean: [0.485, 0.456, 0.406]
+          std: [0.229, 0.224, 0.225]
+          order: 'hwc'
+      - Pad: 
+      - ToCHWImage:
+      - KeepKeys:
+          keep_keys: ['image', 'shape', 'polys', 'ignore_tags']
+  loader:
+    shuffle: False           # 每个epoch是否将数据集顺序打乱
+    drop_last: False
+    batch_size_per_card: 1 # must be 1
+    num_workers: 2
